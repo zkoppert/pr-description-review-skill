@@ -14,6 +14,13 @@ import tempfile
 from .core import ReviewError, execute, private_directory, save
 
 
+def absolute_state(config: dict) -> Path:
+    state = Path(config["state_dir"]).expanduser()
+    if not state.is_absolute():
+        raise ReviewError("Scheduled jobs require an absolute expanded state_dir")
+    return state
+
+
 def plist(config: dict, config_path: Path, release: Path, python: str, home: Path) -> dict:
     label = config.get("label", "com.pr-description-review.weekly")
     if not isinstance(label, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]+", label):
@@ -21,7 +28,7 @@ def plist(config: dict, config_path: Path, release: Path, python: str, home: Pat
     hour, minute = config.get("hour", 9), config.get("minute", 0)
     if type(hour) is not int or type(minute) is not int or not 0 <= hour <= 23 or not 0 <= minute <= 59:
         raise ReviewError("Invalid LaunchAgent schedule")
-    state = Path(config["state_dir"]).expanduser()
+    state = absolute_state(config)
     return {"Label": label, "Comment": "Managed by pr-description-review install",
             "ProgramArguments": [python, "-I", str(release / "run.py"), "--config", str(config_path), "run", "--publish"],
             "WorkingDirectory": str(release), "RunAtLoad": False, "Disabled": True,
@@ -45,7 +52,7 @@ def snapshot(root: Path, releases: Path) -> Path:
     private_directory(releases)
     target = releases / identity
     if target.exists():
-        inventory = {str(p.relative_to(target)) for p in target.rglob("*") if p.is_file() and not ("__pycache__" in p.relative_to(target).parts and p.suffix == ".pyc")}
+        inventory = {str(p.relative_to(target)) for p in target.rglob("*") if p.is_file()}
         if target.is_symlink() or inventory != set(files) | {"runtime-manifest.json"} or any(not (target / name).is_file() or (target / name).is_symlink() or (target / name).read_bytes() != content for name, content in files.items()):
             raise ReviewError("An existing pinned runtime differs from its content identity")
         return target
@@ -70,7 +77,7 @@ def install_agent(config: dict, config_path: Path, *, enable: bool, home: Path |
     if enable and config.get("publish_aggregates") is not True:
         raise ReviewError("Approve aggregate publication before enabling the job")
     home = (home or Path.home()).resolve()
-    state = private_directory(Path(config["state_dir"]).expanduser())
+    state = private_directory(absolute_state(config))
     for key in ("github_prefix", "copilot_prefix", "notifier_prefix"):
         executable = config[key][0]
         if not Path(executable).is_absolute() or not Path(executable).is_file() or not os.access(executable, os.X_OK):

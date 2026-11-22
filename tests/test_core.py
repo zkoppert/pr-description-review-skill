@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from pathlib import Path
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from pr_review.core import ReviewError, execute, instant, load, save, window
@@ -58,6 +60,26 @@ class StateTests(unittest.TestCase):
             with self.assertRaises(ReviewError):
                 save(path, "replacement")
             self.assertEqual(target.read_text(), "preserved")
+
+    def test_new_parent_entries_and_replacement_are_synced_before_return(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "state/period/data.json"
+            events = []
+            replace, fsync = os.replace, os.fsync
+            def record_replace(source, target):
+                events.append(("replace", target))
+                replace(source, target)
+            def record_fsync(fd):
+                events.append(("file-sync", None))
+                fsync(fd)
+            with patch("pr_review.core.sync_directory", side_effect=lambda p: events.append(("directory-sync", p)), create=True), patch("pr_review.core.os.replace", side_effect=record_replace), patch("pr_review.core.os.fsync", side_effect=record_fsync):
+                save(path, {"post_attempted": True})
+            self.assertEqual(events, [
+                ("directory-sync", root / "state"), ("directory-sync", root),
+                ("directory-sync", path.parent), ("directory-sync", root / "state"),
+                ("file-sync", None), ("replace", path), ("directory-sync", path.parent)])
+            self.assertEqual(load(path), {"post_attempted": True})
 
     def test_subprocess_failure_does_not_echo_source(self):
         import sys

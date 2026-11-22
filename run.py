@@ -6,6 +6,7 @@ from pathlib import Path
 import runpy
 import sys
 
+sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent
 manifest_file = ROOT / "runtime-manifest.json"
 if manifest_file.exists():
@@ -18,7 +19,7 @@ if manifest_file.exists():
         relative = candidate.relative_to(ROOT)
         if candidate.is_symlink():
             raise SystemExit("Pinned runtime path mismatch")
-        if candidate.is_file() and not ("__pycache__" in relative.parts and candidate.suffix == ".pyc"):
+        if candidate.is_file():
             inventory.add(str(relative))
     if inventory != set(manifest) | {"runtime-manifest.json"}:
         raise SystemExit("Pinned runtime file inventory mismatch")

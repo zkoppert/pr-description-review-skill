@@ -256,6 +256,26 @@ class RevisionTests(unittest.TestCase):
         pr["userContentEdits"][1]["diff"] = "Body\n<!-- hash: old -->"
         self.assertEqual(revisions(pr, PERIOD)["hidden_only"], 1)
 
+    def test_escaped_comment_openers_remain_visible_revision_evidence(self):
+        for prefix in ("\\", "\\\\\\"):
+            with self.subTest(prefix=prefix):
+                before, after = prefix + "<!-- old -->", prefix + "<!-- new -->"
+                self.assertNotEqual(readable(before), readable(after))
+                pr = pull_request()
+                pr["userContentEdits"][0]["diff"] = before
+                pr["userContentEdits"][1]["diff"] = after
+                self.assertEqual(revisions(pr, PERIOD)["hidden_only"], 0)
+        self.assertEqual(readable(r"\\<!-- old -->"), readable(r"\\<!-- new -->"))
+        self.assertEqual(readable(r"\`<!-- hidden -->"), r"\`")
+
+    def test_paragraph_to_indented_code_is_not_a_hidden_only_edit(self):
+        self.assertEqual(readable("    Deploy"), "    Deploy")
+        self.assertEqual(readable("\tDeploy"), "\tDeploy")
+        pr = pull_request()
+        pr["userContentEdits"][0]["diff"] = "Deploy"
+        pr["userContentEdits"][1]["diff"] = "    Deploy"
+        self.assertEqual(revisions(pr, PERIOD)["hidden_only"], 0)
+
     def test_deleted_versions_make_outcomes_incomplete_without_inventing_a_delta(self):
         pr = pull_request()
         pr["userContentEdits"][1]["diff"] = None

@@ -1,4 +1,7 @@
+import importlib.util
+import os
 from pathlib import Path
+import py_compile
 import plistlib
 import subprocess
 import sys
@@ -40,6 +43,7 @@ class InstallerTests(unittest.TestCase):
             result = subprocess.run([sys.executable, "-I", str(release / "run.py"), "--help"], capture_output=True, text=True, cwd=path)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("--config", result.stdout)
+            self.assertEqual(list(release.rglob("*.pyc")), [])
             source = release / "pr_review/core.py"
             source.chmod(0o600)
             marker = path / "unexpected-side-effect"
@@ -48,6 +52,44 @@ class InstallerTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("runtime content mismatch", result.stderr)
             self.assertFalse(marker.exists())
+
+    def test_unchecked_bytecode_cannot_execute_in_a_verified_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            release = snapshot(ROOT, path / "releases")
+            marker = path / "unexpected-side-effect"
+            source = release / "pr_review/__init__.py"
+            verified = source.read_bytes()
+            payload = path / "payload.py"
+            payload.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
+            cache = Path(importlib.util.cache_from_source(str(source)))
+            cache.parent.mkdir()
+            py_compile.compile(str(payload), cfile=str(cache), doraise=True,
+                               invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+            self.assertEqual(source.read_bytes(), verified)
+            result = subprocess.run([sys.executable, "-I", str(release / "run.py"), "--help"], capture_output=True, text=True, cwd=path)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("runtime file inventory mismatch", result.stderr)
+            self.assertFalse(marker.exists())
+            with self.assertRaisesRegex(ReviewError, "content identity"):
+                snapshot(ROOT, path / "releases")
+
+    def test_install_rejects_relative_state_before_creating_runtime_or_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            for value in ("state", ".", ""):
+                settings = config(home)
+                settings["state_dir"] = value
+                with self.subTest(state=value), patch("pr_review.install.sys.platform", "darwin"):
+                    with self.assertRaisesRegex(ReviewError, "absolute"):
+                        install_agent(settings, home / "config.json", enable=False, home=home,
+                                      runner=lambda argv: self.fail("Invalid paths must fail before commands"))
+                self.assertFalse((home / ".local").exists())
+            settings["state_dir"] = "~/state"
+            with patch.dict(os.environ, HOME=str(home)), patch("pr_review.install.sys.platform", "darwin"):
+                result = install_agent(settings, home / "config.json", enable=False, home=home, runner=lambda argv: "")
+            spec = plistlib.loads(Path(result["plist"]).read_bytes())
+            self.assertEqual(spec["StandardOutPath"], str(home / "state/launchd.log"))
 
     def test_unlisted_runtime_files_are_rejected_before_application_import(self):
         with tempfile.TemporaryDirectory() as directory:

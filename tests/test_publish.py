@@ -1,7 +1,10 @@
 import copy
+import os
+import stat
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from pr_review.core import ReviewError
 from pr_review.publish import notify, publish, render
@@ -77,6 +80,20 @@ class RenderingTests(unittest.TestCase):
 
 
 class PublicationTests(unittest.TestCase):
+    def test_journal_directory_sync_failure_stops_before_remote_creation(self):
+        service = GistService()
+        fsync = os.fsync
+        def fail_directory_sync(fd):
+            if stat.S_ISDIR(os.fstat(fd).st_mode):
+                raise OSError("Synthetic directory sync failure")
+            fsync(fd)
+        with tempfile.TemporaryDirectory() as directory:
+            journal = Path(directory) / "publication.json"
+            with patch("pr_review.core.os.fsync", side_effect=fail_directory_sync):
+                with self.assertRaisesRegex(OSError, "directory sync failure"):
+                    publish(service, "example-owner", PERIOD, "frozen report", journal)
+            self.assertEqual(service.creates, 0)
+
     def test_uncertain_remote_creation_is_reconciled_without_a_duplicate(self):
         service = GistService()
         service.lose_response = True

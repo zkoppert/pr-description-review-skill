@@ -204,6 +204,9 @@ def readable(text: str) -> str:
                 if end < 0:
                     break
                 comment, position = False, end + 3
+            elif not ticks and line[position] == "\\" and position + 1 < len(line):
+                visible.append(line[position:position + 2])
+                position += 2
             elif line[position] == "`":
                 token = re.match(r"`+", line[position:])[0]
                 if not ticks:
@@ -218,7 +221,7 @@ def readable(text: str) -> str:
                 visible.append(line[position])
                 position += 1
         output.append("".join(visible))
-    return "\n".join(output).strip()
+    return "\n".join(output).strip("\n")
 
 
 def revisions(pr: dict, period: dict) -> dict:

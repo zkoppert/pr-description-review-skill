@@ -44,6 +44,20 @@ class EntryPointTests(unittest.TestCase):
         self.assertNotIn("creates", external)
         self.assertNotIn("model_calls", external)
 
+    def test_invalid_panels_leave_no_receipt_and_corrected_configuration_can_retry(self):
+        for models in (["model-a", "model-a", "model-c"], ["model-a", "model-b"],
+                       ["model-a", "model-b", "gemini-example"], ["model-a", "model-b", "bad model"], None):
+            with self.subTest(models=models):
+                self.config["models"] = models
+                result = self.invoke("--at", "2026-11-21T18:00:00Z")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.home / "state").exists())
+                self.assertEqual(json.loads(self.external.read_text()), {})
+        self.config["models"] = ["model-a", "model-b", "model-c"]
+        result = self.invoke("--at", "2026-11-21T18:00:00Z")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(json.loads(self.external.read_text())["model_calls"]), 3)
+
     def test_preview_scores_real_entrypoint_without_writes_or_notifications(self):
         result = self.invoke("--at", "2026-11-21T18:00:00Z")
         self.assertEqual(result.returncode, 0, result.stderr)

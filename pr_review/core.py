@@ -29,11 +29,27 @@ def execute(argv: list[str], *, stdin: str | None = None, timeout: int = 180) ->
     return result.stdout
 
 
+def sync_directory(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 def private_directory(path: Path) -> Path:
     if path.is_symlink():
         raise ReviewError("State directories must not be symbolic links")
+    missing = []
+    ancestor = path
+    while not ancestor.exists():
+        missing.append(ancestor)
+        ancestor = ancestor.parent
     path.mkdir(parents=True, exist_ok=True, mode=0o700)
     path.chmod(0o700)
+    for directory in reversed(missing):
+        sync_directory(directory)
+        sync_directory(directory.parent)
     return path
 
 
@@ -52,6 +68,7 @@ def save(path: Path, value: object, *, private_parent: bool = True) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(name, path)
+        sync_directory(path.parent)
     finally:
         Path(name).unlink(missing_ok=True)
 

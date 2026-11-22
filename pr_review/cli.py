@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from .core import ReviewError, command, digest, execute, instant, iso, load, local_zone, private_directory, save, window
 from .github import GitHub, collect, validate_prefix
 from .publish import notify, publish, render
-from .scoring import assess, validate_assessment
+from .scoring import assess, validate_assessment, validate_models
 
 
 def settings(path: Path) -> dict:
@@ -25,8 +25,7 @@ def settings(path: Path) -> dict:
     validate_prefix(data["github_prefix"])
     if data.get("allow_private") is True and data.get("private_provider_approved") is not True:
         raise ReviewError("Private-source scoring requires approval for the configured Copilot provider")
-    if not isinstance(data.get("models"), list):
-        raise ReviewError("Configure the three scoring models")
+    validate_models(data.get("models"))
     return data
 
 
