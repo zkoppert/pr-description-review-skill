@@ -30,6 +30,20 @@ class EntryPointTests(unittest.TestCase):
         return subprocess.run([sys.executable, "-I", str(ROOT / "run.py"), "--config", str(self.config_path), "run", *args],
                               cwd=self.home, env={**os.environ, "REVIEW_FIXTURE_STATE": str(self.external)}, capture_output=True, text=True, timeout=30)
 
+    def test_overlapping_publish_stops_before_api_calls_or_gist_creation(self):
+        import fcntl
+        state = self.home / "state"
+        state.mkdir()
+        with (state / "operation.lock").open("a+") as held:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            result = self.invoke("--publish")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("already running", result.stderr)
+        external = json.loads(self.external.read_text())
+        self.assertNotIn("api_calls", external)
+        self.assertNotIn("creates", external)
+        self.assertNotIn("model_calls", external)
+
     def test_preview_scores_real_entrypoint_without_writes_or_notifications(self):
         result = self.invoke("--at", "2026-11-21T18:00:00Z")
         self.assertEqual(result.returncode, 0, result.stderr)
